@@ -8915,7 +8915,9 @@ class TalkinBot:
                     ("👥 الهجوم — ", "👥 Attack — "), ("👥 الدفاع — ", "👥 Defense — "),
                     ("🤖 الهجوم — ", "🤖 Attack — "), ("🤖 الدفاع — ", "🤖 Defense — "),
                     (" لاعبين): ", " players): "), (" لاعبان): ", " players): "),
-                    ("لاعبون قيد الانضمام", "players joining"), ("الفريق", "team"),
+                    ("لاعبون قيد الانضمام", "players joining"),
+                    ("الفريق الأول", "the first team"), ("الفريق الثاني", "the second team"),
+                    ("الفريق", "team"),
                 ):
                     line = line.replace(arabic, english)
                 return line.replace("، ", ", ")
@@ -9371,6 +9373,9 @@ class TalkinBot:
         for ar, en in mining_and_cricket_replacements.items():
             value = value.replace(ar, en)
         final_cricket_fixes = {
+            "⛏️ متجر الكنوز — الأسعار بالpoints": "⛏️ Treasure shop — prices in points",
+            "team الأول": "the first team",
+            "team الثاني": "the second team",
             "⛔ يوجد لاعب مسجل بالفعل؛ type Join from that account or wait the other room.":
                 "⛔ A player is already registered. Type Join from that account or wait for the other room.",
             "لاعب في الغرفة.\n🔗 After the first team is full, the second room types Join؛ the oldest full team is paired first when several lobbies are waiting. or أكمل العدد هنا للعب vs ":

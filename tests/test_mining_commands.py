@@ -127,6 +127,24 @@ def test_mining_and_cricket_messages_follow_the_saved_room_language():
     english_setup = bot._localize_room_text("EnglishHall", cricket_setup)
     assert not any("\u0600" <= char <= "\u06ff" for char in english_setup)
 
+    shop_and_mining = (
+        "⛏️ متجر الكنوز — الأسعار بالنقاط\nللتنقيب: احفر\n"
+        "للمخزون: sv\n💎 إجمالي الألماس الذي عثرت عليه: 1"
+    )
+    english_shop = bot._localize_room_text("EnglishHall", shop_and_mining)
+    assert "Treasure shop — prices in points" in english_shop
+    assert not any("\u0600" <= char <= "\u06ff" for char in english_shop)
+
+    cricket_start = (
+        "🏏 بدأت مباراة الكريكيت\n"
+        "👥 الفريق الأول (2 لاعبين): Alice, Bob\n"
+        "👥 الفريق الثاني (2 لاعبين): Jane, Sue\n"
+        "🎯 يبدأ الهجوم: الهجوم. لكل لاعب 6 كرات في كل دور."
+    )
+    english_start = bot._localize_room_text("EnglishHall", cricket_start)
+    assert "the first team" in english_start and "the second team" in english_start
+    assert not any("\u0600" <= char <= "\u06ff" for char in english_start)
+
     cricket_samples = [
         "⛔ يوجد لاعب مسجل بالفعل؛ أرسل Join بحسابه أو انتظر الغرفة الأخرى.",
         "لاعب في الغرفة.\n🔗 بعد اكتمال الفريق الأول، ترسل الغرفة الثانية Join؛ وعند تعدد القوائم يُقرن بأقدم فريق مكتمل. أو أكمل العدد هنا للعب ضد BotName.",
