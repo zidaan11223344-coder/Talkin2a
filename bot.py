@@ -17962,6 +17962,7 @@ class TalkinBot:
                     result_text += f"\n🚫 الخاسرون لجولة طبيب واحدة فقط: {blocked}\nبعد الجولة التالية تستطيعون المشاركة مجدداً."
                 try:
                     self.send_room_text(target_room, result_text)
+                    self._send_treasure_game_result_card(target_room, game_key, winner)
                 except Exception as exc:
                     self.log("[TREASURE-CYCLE] doctor result send failed:", target_room, repr(exc))
             return
@@ -18010,6 +18011,7 @@ class TalkinBot:
                         lines.append(f"@{player}: لم يُخصم 10,000 نقطة لعدم كفاية الرصيد أو تعذّر التحديث.")
             try:
                 self.send_room_text(target_room, "\n".join(lines))
+                self._send_treasure_game_result_card(target_room, game_key, winner)
             except Exception as exc:
                 self.log("[TREASURE-CYCLE] result send failed:", target_room, repr(exc))
 

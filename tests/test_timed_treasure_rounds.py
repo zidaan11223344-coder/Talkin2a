@@ -312,7 +312,7 @@ def test_all_nine_timed_games_complete_and_emit_one_result_when_rosters_fill():
         result_messages = [text for room, text in room_messages if room == "Hall" and ("فاز" in text or "أنقذ" in text)]
         assert len(result_messages) == 1, (game_key, room_messages)
         assert "@Player0" in result_messages[0], game_key
-        assert cards == []
+        assert cards == [("Hall", game_key, "Player0")]
         assert any(update[0] == "Player0" and update[1] == config["prize"] for update in point_updates), game_key
         assert sum(1 for _name, delta, *_rest in point_updates if delta == -10_000) == config["players"] - 1, game_key
         if game_key == "imperial_sickness":
