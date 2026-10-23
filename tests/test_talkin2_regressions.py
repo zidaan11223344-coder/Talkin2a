@@ -564,24 +564,38 @@ class RoomExclusionRegressions(unittest.TestCase):
             bot._process_room_list([{"name": "Forbidden"}, {"name": "Other"}])
         self.assertEqual(bot.known_rooms, {"Other"})
 
-    def test_manual_join_reports_a_room_already_listed_as_connected(self):
+    def test_manual_join_rejoins_a_room_even_when_already_connected(self):
         bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
         bot.connected_rooms = {"RoomA"}
         bot._pending_room_joins = {}
+        bot._pending_room_leaves = {}
+        bot._room_restore_candidates = set()
+        bot.blocked_rooms = set()
+        bot._blocked_room_reasons = {}
+        bot._join_lock = threading.Lock()
+        bot._last_join_sent = {}
         bot._room_bulk_lock = threading.RLock()
         bot.log = lambda *_args: None
         calls = []
 
-        def join(room, force=False, requested_by=""):
-            calls.append(("join", room, force, requested_by))
+        def leave(room):
+            calls.append(("leave", room))
+            bot.connected_rooms.discard(room)
+            bot._pending_room_leaves[bot_module._norm_room(room)].set()
             return True
 
+        def join(room, force=False, requested_by=""):
+            calls.append(("join", room, force, requested_by))
+            bot.connected_rooms.add(room)
+            return True
+
+        bot.leave_room = leave
         bot.join_room = join
         bot.send_private_text = lambda *_args: None
         with patch.object(bot_module.time, "sleep"):
             result = bot._join_rooms_serially(["RoomA"], sender="Master")
-        self.assertEqual(result, {"sent": 0, "skipped": 1})
-        self.assertEqual(calls, [])
+        self.assertEqual(result, {"sent": 1, "skipped": 0})
+        self.assertEqual(calls, [("leave", "RoomA"), ("join", "RoomA", False, "Master")])
 
     def test_occupants_response_alone_does_not_mark_room_connected(self):
         bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
@@ -4656,6 +4670,106 @@ class NewMarketAndModerationRegressions(unittest.TestCase):
         ):
             self.assertTrue(bot.leave_room("North"))
         self.assertEqual(events[:2], ["backup", "leave"])
+
+    def test_manual_join_leaves_then_sends_one_join_even_without_leave_ack(self):
+        for ack_received in (True, False):
+            with self.subTest(ack_received=ack_received):
+                bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
+                bot._room_bulk_lock = threading.RLock()
+                bot.connected_rooms = {"North"}
+                bot._room_restore_candidates = set()
+                bot._pending_room_joins = {}
+                bot.blocked_rooms = set()
+                bot._blocked_room_reasons = {}
+                bot._join_lock = threading.Lock()
+                bot._last_join_sent = {}
+                bot.known_rooms = {"North"}
+                bot.room_users = {"North": {}}
+                bot._server_room_catalog = ["North"]
+                bot.log = lambda *_args: None
+                sent = []
+                bot.send_private_text = lambda _user, text: sent.append(text)
+                calls = []
+
+                def leave(room):
+                    calls.append("leave")
+                    bot.connected_rooms.discard(room)
+                    waiter = bot._pending_room_leaves[bot_module._norm_room(room)]
+                    if ack_received:
+                        waiter.set()
+                    return True
+
+                def join(room, **_kwargs):
+                    calls.append("join")
+                    bot.connected_rooms.add(room)
+                    return True
+
+                bot.leave_room = leave
+                bot.join_room = join
+                with patch.dict(bot_module.os.environ, {
+                    "ROOM_LEAVE_ACK_TIMEOUT_SECONDS": "0.2",
+                    "MANUAL_REJOIN_DELAY_SECONDS": "0",
+                }):
+                    bot._join_rooms_serially(["North"], sender="Master")
+
+                self.assertEqual(calls, ["leave", "join"])
+                self.assertIn("North", bot.connected_rooms)
+                self.assertFalse(any("موجود داخل الغرفة" in text for text in sent))
+
+    def test_auto_rejoin_defers_to_startup_room_restore(self):
+        bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
+        bot.blocked_rooms = set()
+        bot._intentional_leaves = set()
+        bot._pending_room_joins = {}
+        bot._room_restore_candidates = {"North"}
+        bot._room_restore_started_at = bot_module.time.monotonic()
+        bot.log = lambda *_args: None
+        with patch.object(bot_module.threading, "Thread", side_effect=AssertionError("duplicate worker")):
+            bot._schedule_auto_rejoin("North")
+
+    def test_auto_rejoin_pauses_after_one_retry_if_room_drops_again(self):
+        bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
+        bot.blocked_rooms = set()
+        bot._intentional_leaves = set()
+        bot._pending_room_joins = {}
+        bot._room_restore_candidates = set()
+        bot._auto_rejoin_lock = threading.RLock()
+        bot._auto_rejoin_pending = set()
+        bot._auto_rejoin_paused = set()
+        bot._auto_rejoin_waiting_ack = set()
+        bot._auto_rejoin_state = {
+            "North": {
+                "attempts": [], "joined_at": bot_module.time.monotonic() - 1,
+                "rapid_losses": 0,
+            }
+        }
+        bot._connection_generation = 0
+        bot._room_bulk_lock = threading.RLock()
+        bot.connected_rooms = set()
+        bot.join_calls = []
+        bot.join_room = lambda room, **_kwargs: bot.join_calls.append(room) or True
+        bot.send_private_text = lambda *_args: None
+        bot._effective_room_language = lambda _room: "ar"
+        bot.log = lambda *_args: None
+
+        class InlineThread:
+            def __init__(self, target, **_kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        with patch.object(bot_module.time, "sleep", return_value=None), \
+             patch.object(bot_module.threading, "Thread", InlineThread), \
+             patch.object(bot_module, "BOT_MASTER", ""):
+            bot._schedule_auto_rejoin("North", delay=0)
+            self.assertEqual(bot.join_calls, ["North"])
+            bot._auto_rejoin_waiting_ack.clear()
+            bot._auto_rejoin_state["North"]["joined_at"] = bot_module.time.monotonic() - 1
+            bot._schedule_auto_rejoin("North", delay=0)
+
+        self.assertEqual(bot.join_calls, ["North"])
+        self.assertIn("North", bot._auto_rejoin_paused)
 
 
 class NewFeatureRegressions(unittest.TestCase):

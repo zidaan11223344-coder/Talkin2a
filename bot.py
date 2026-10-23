@@ -436,6 +436,13 @@ TIMED_TREASURE_GAMES = {
     },
 }
 
+TIMED_GAME_STARTUP_DELAY_SECONDS = 180.0
+
+def _initial_timed_game_due(now=None):
+    """Return the first timed-game announcement time, three minutes after startup."""
+    started_at = time.time() if now is None else float(now)
+    return started_at + TIMED_GAME_STARTUP_DELAY_SECONDS
+
 def _normalize_timed_treasure_command(value):
     text = str(value or "").strip().casefold()
     text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
@@ -7240,7 +7247,7 @@ class TalkinBot:
         self._rare_diamond_lock = threading.RLock()
         self._rare_diamond_event = None
         self._rare_diamond_round_seq = 0
-        self._rare_diamond_next_due = time.time()
+        self._rare_diamond_next_due = _initial_timed_game_due()
         self._treasure_cycle_index = 0
         self._royal_cycle_index = 0
         self._doctor_ban_lock = threading.RLock()
@@ -8219,7 +8226,7 @@ class TalkinBot:
             self.log("[ROOM] departure notice failed:", type(exc).__name__)
             return False
 
-    def _schedule_auto_rejoin(self, room: str, delay: float = 1.2):
+    def _schedule_auto_rejoin(self, room: str, delay: float = 3.0):
         """Rejoin after a departure with bounded attempts and exponential backoff."""
         if not room:
             return
@@ -8227,6 +8234,15 @@ class TalkinBot:
         if room_key in getattr(self, "blocked_rooms", set()):
             return
         if room_key in getattr(self, "_intentional_leaves", set()):
+            return
+        restore_started = float(getattr(self, "_room_restore_started_at", 0.0) or 0.0)
+        if (
+            restore_started
+            and time.monotonic() - restore_started < 45.0
+            and any(_norm_room(saved).casefold() == room_key.casefold()
+                    for saved in getattr(self, "_room_restore_candidates", set()))
+        ):
+            self.log(f"[AUTO_REJOIN] startup restore owns this room; skip duplicate: {room}")
             return
         pending_join = getattr(self, "_pending_room_joins", {}).get(room_key)
         if pending_join:
@@ -8263,7 +8279,7 @@ class TalkinBot:
                 state["rapid_losses"] = 0
             elif joined_at and now - joined_at < 120.0:
                 state["rapid_losses"] = int(state.get("rapid_losses", 0) or 0) + 1
-                if state["rapid_losses"] >= 3:
+                if state["rapid_losses"] >= 2:
                     self._auto_rejoin_paused.add(room_key)
                     state["attempts"] = []
                     notify_master = True
@@ -8276,7 +8292,7 @@ class TalkinBot:
                     self.log(f"[AUTO_REJOIN] stopping after 5 attempts in 15 minutes: {room}")
                     return
                 state["attempts"] = recent_attempts + [now]
-                delay = max(float(delay), min(60.0, 1.2 * (2 ** len(recent_attempts))))
+                delay = max(2.0, float(delay), min(60.0, 1.2 * (2 ** len(recent_attempts))))
                 generation = int(getattr(self, "_connection_generation", 0))
                 self._auto_rejoin_pending.add(room_key)
         if notify_master:
@@ -8287,19 +8303,19 @@ class TalkinBot:
                     is_en = False
                 if is_en:
                     notice = (
-                        f"⏸️ Automatic rejoin to {room} paused after three rapid departures. "
+                        f"⏸️ Automatic rejoin to {room} paused after repeated rapid departures. "
                         "To resume, send: دخول@اسم_الغرفة"
                     )
                 else:
                     notice = (
-                        f"⏸️ أوقفت إعادة الدخول التلقائية إلى {room} بعد ثلاث مغادرات سريعة. "
+                        f"⏸️ أوقفت إعادة الدخول التلقائية إلى {room} بعد تكرر الخروج بسرعة. "
                         "لاستئنافها أرسل: دخول@اسم_الغرفة"
                     )
                 try:
                     self.send_private_text(BOT_MASTER, notice)
                 except Exception as exc:
                     self.log("[AUTO_REJOIN] pause notice failed:", type(exc).__name__)
-            self.log(f"[AUTO_REJOIN] paused after three rapid departures: {room}")
+            self.log(f"[AUTO_REJOIN] paused after repeated rapid departures: {room}")
             return
         def _rejoin_worker():
             try:
@@ -18985,7 +19001,11 @@ class TalkinBot:
         with self._room_bulk_lock:
             for target in cleaned:
                 key=_norm_room(target)
-                if any(_norm_room(r)==key for r in getattr(self, "connected_rooms", set())):
+                connected = any(
+                    _norm_room(r).casefold() == key.casefold()
+                    for r in getattr(self, "connected_rooms", set())
+                )
+                if connected and fast_restore:
                     # The server already confirmed this room in the current
                     # session. Never leave/rejoin it just because the master
                     # requested the saved-room list; that race used to produce
@@ -18999,7 +19019,10 @@ class TalkinBot:
                     if sync_id:
                         self._record_room_sync_result(sync_id, target, True, "موجودة ومتصل بها البوت")
                     continue
-                if sender and key in getattr(self, "_room_restore_candidates", set()):
+                if fast_restore and sender and any(
+                    _norm_room(saved).casefold() == key.casefold()
+                    for saved in getattr(self, "_room_restore_candidates", set())
+                ):
                     try:
                         self.send_private_text(sender, f"✅ البوت موجود داخل الغرفة: {target}")
                     except Exception as exc:
@@ -19008,6 +19031,39 @@ class TalkinBot:
                     if sync_id:
                         self._record_room_sync_result(sync_id, target, True, "تمت استعادتها عند تشغيل البوت")
                     continue
+                if not fast_restore:
+                    restore_candidates = getattr(self, "_room_restore_candidates", set())
+                    for saved in tuple(restore_candidates):
+                        if _norm_room(saved).casefold() == key.casefold():
+                            restore_candidates.discard(saved)
+                if connected:
+                    # A manual دخول@ request is an explicit refresh: leave
+                    # first, wait briefly for the server's user_left ACK, then
+                    # issue exactly one join even if that ACK never arrives.
+                    pending_leaves = getattr(self, "_pending_room_leaves", None)
+                    if not isinstance(pending_leaves, dict):
+                        pending_leaves = self._pending_room_leaves = {}
+                    leave_ack = threading.Event()
+                    pending_leaves[key] = leave_ack
+                    leave_sent = False
+                    try:
+                        leave_sent = self.leave_room(target) is not False
+                    except Exception as exc:
+                        self.log("[ROOM] manual leave before rejoin failed:", target, repr(exc))
+                    leave_timeout = max(
+                        0.2, float(os.getenv("ROOM_LEAVE_ACK_TIMEOUT_SECONDS", "3.0") or 3.0)
+                    )
+                    if leave_sent:
+                        if leave_ack.wait(leave_timeout):
+                            self.log("[ROOM] server confirmed leave before rejoin:", target)
+                        else:
+                            self.log("[ROOM] leave ACK timed out; continuing with one manual join:", target)
+                    pending_leaves.pop(key, None)
+                    rejoin_gap = max(
+                        0.0, float(os.getenv("MANUAL_REJOIN_DELAY_SECONDS", "1.0") or 1.0)
+                    )
+                    if rejoin_gap:
+                        time.sleep(rejoin_gap)
                 try:
                     if self.join_room(target, force=bool(fast_restore), requested_by=sender):
                         sent += 1
@@ -23051,6 +23107,12 @@ class TalkinBot:
                     connected for connected in self.connected_rooms
                     if _norm_room(connected) != _norm_room(room)
                 }
+                pending_leaves = getattr(self, "_pending_room_leaves", {})
+                for pending_room, leave_ack in tuple(pending_leaves.items()):
+                    if _norm_room(pending_room).casefold() == norm_r.casefold():
+                        pending_leaves.pop(pending_room, None)
+                        leave_ack.set()
+                        break
                 if getattr(self, "_intentional_leaves", None) and _norm_room(room) in self._intentional_leaves:
                     self.log(f"[USER_LEFT_DETECTED] Bot left {room} intentionally; skipping auto-rejoin.")
                 else:
@@ -23191,6 +23253,10 @@ class TalkinBot:
                 self.connected_rooms.add(room)
             self.last_joined_room = room
             rnorm = _norm_room(room)
+            restore_candidates = getattr(self, "_room_restore_candidates", set())
+            for candidate in tuple(restore_candidates):
+                if _norm_room(candidate).casefold() == rnorm.casefold():
+                    restore_candidates.discard(candidate)
             waiting_ack = getattr(self, "_auto_rejoin_waiting_ack", None)
             if waiting_ack is not None:
                 waiting_ack.difference_update(
@@ -24497,6 +24563,7 @@ class TalkinBot:
             self._room_restore_candidates = {
                 _norm_room(room_name) for room_name in rooms_to_restore if _norm_room(room_name)
             }
+            self._room_restore_started_at = time.monotonic()
             threading.Thread(
                 target=self._join_rooms_serially,
                 args=(sorted(rooms_to_restore), "", True),

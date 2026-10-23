@@ -92,7 +92,7 @@ def test_master_diamond_check_rotates_inventory_item_and_sends_room_image(tmp_pa
     assert "99" not in state["players"]
 
 
-def test_auto_rejoin_pauses_after_three_rapid_confirmed_room_exits():
+def test_auto_rejoin_pauses_after_one_rapid_confirmed_retry():
     bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
     room_key = bot_module._norm_room("Hall")
     bot.connected_rooms = set()
@@ -126,14 +126,13 @@ def test_auto_rejoin_pauses_after_three_rapid_confirmed_room_exits():
     ), patch.object(bot_module, "BOT_ID", "test-bot"), patch.object(
         bot_module, "BOT_MASTER", "Master"
     ):
-        for expected_joins in (1, 2):
-            bot._schedule_auto_rejoin("Hall", delay=0)
-            assert len(joins) == expected_joins
-            bot._auto_rejoin_waiting_ack.discard(room_key)
-            bot._auto_rejoin_state[room_key]["joined_at"] = bot_module.time.monotonic()
+        bot._schedule_auto_rejoin("Hall", delay=0)
+        assert len(joins) == 1
+        bot._auto_rejoin_waiting_ack.discard(room_key)
+        bot._auto_rejoin_state[room_key]["joined_at"] = bot_module.time.monotonic()
         bot._schedule_auto_rejoin("Hall", delay=0)
 
-    assert len(joins) == 2
+    assert len(joins) == 1
     assert bot._auto_rejoin_paused == {room_key}
     assert len(notices) == 1
     assert "أوقفت إعادة الدخول التلقائية" in notices[0][1]

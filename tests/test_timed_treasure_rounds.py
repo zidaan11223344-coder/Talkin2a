@@ -26,6 +26,11 @@ def test_timed_game_cycle_starts_with_mining_and_has_all_nine_games():
     assert all(bot_module.resolve_item_keys(item["icon"]) == (key,) for key, item in bot_module.MINING_ITEMS.items())
 
 
+def test_first_nine_game_cycle_starts_three_minutes_after_bot_startup():
+    assert bot_module.TIMED_GAME_STARTUP_DELAY_SECONDS == 180.0
+    assert bot_module._initial_timed_game_due(1_000.0) == 1_180.0
+
+
 def test_next_timed_game_is_due_three_minutes_after_round_resolution_finishes():
     bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
     bot._rare_diamond_lock = threading.RLock()
