@@ -42,17 +42,23 @@ def test_mining_commands_use_stable_id_and_redeem_inventory_idempotently(tmp_pat
     )
     monkeypatch.setattr(bot_module.time, "sleep", lambda _seconds: None)
 
-    assert bot._execute_mining_command_with_id("Hall", "الماس", "Ahmed", "3456782")
+    assert bot_module._looks_like_bot_command("diamond")
+    assert bot_module._looks_like_bot_command("mine")
+    assert bot_module._looks_like_bot_command("dig")
+    assert bot_module._looks_like_bot_command("treasure store")
+    assert bot_module._looks_like_bot_command("top diamonds")
+    assert bot_module._looks_like_bot_command("sv inventory")
+    assert bot._execute_mining_command_with_id("Hall", "diamond", "Ahmed", "3456782")
     assert state["players"]["3456782"]["inventory"]["diamond_blue"] == 1
     assert any("Ahmed عثرت على:" in text and "قيمة الاستبدال: 1,000,000 نقطة" in text for _room, text in sent)
     assert media == [("Hall", "https://assets.example/assets/treasures/diamond_blue.jpg", "image")]
 
     sent.clear()
-    assert bot._execute_mining_command_with_id("Hall", "sv", "NewName", "3456782")
+    assert bot._execute_mining_command_with_id("Hall", "inventory", "NewName", "3456782")
     assert any("الألماس الأزرق: 1" in text for _room, text in sent)
 
     sent.clear()
-    assert bot._execute_mining_command_with_id("Hall", "توب الالماس", "NewName", "3456782")
+    assert bot._execute_mining_command_with_id("Hall", "top diamonds", "NewName", "3456782")
     assert any("@NewName — 1 ألماسة" in text for _room, text in sent)
 
     sent.clear()
@@ -78,7 +84,7 @@ def test_mining_commands_use_stable_id_and_redeem_inventory_idempotently(tmp_pat
     assert any("25,000 نقطة" in text for _room, text in sent)
 
     sent.clear()
-    assert bot._execute_mining_command_with_id("Hall", "متجر الكنوز", "NewName", "3456782")
+    assert bot._execute_mining_command_with_id("Hall", "treasure store", "NewName", "3456782")
     catalog = sent[-1][1]
     packet = bot_module.encode_query("room_message", room="Hall", body=catalog)
     assert len(packet) <= 1008
@@ -96,3 +102,39 @@ def test_media_type_uses_image_signature_when_extension_is_wrong(tmp_path):
     mislabeled = tmp_path / "image.jpg"
     mislabeled.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
     assert handler._ctype(mislabeled) == "image/png"
+
+
+def test_mining_and_cricket_messages_follow_the_saved_room_language():
+    bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
+    bot._effective_room_language = lambda room: "en" if room == "EnglishHall" else "ar"
+    inventory = (
+        "🎒 مخزون @Player\n🔷 الألماس الأزرق: 2\n"
+        "🔴 ألماسة نادرة RED: 0 — الاستبدال: red 0 (4,000,000 نقطة للقطعة)\n"
+        "💎 إجمالي الألماس الذي عثرت عليه: 2\n"
+        "🔁 للاستبدال: red رمز أو اسم أي كنز العدد — مثال: red ⚙️ 3 أو red ♦️ 3"
+    )
+    english_inventory = bot._localize_room_text("EnglishHall", inventory)
+    arabic_inventory = bot._localize_room_text("ArabicHall", inventory)
+    assert not any("\u0600" <= char <= "\u06ff" for char in english_inventory)
+    assert arabic_inventory == inventory
+
+    cricket_setup = (
+        "🏏 إعداد مباراة ضد البوت\n"
+        "اختر عدد اللاعبين: 1 أو 2 أو 3 أو 4.\n"
+        "بعد اختيار العدد، يرسل كل لاعب Join من هذه الغرفة فقط.\n"
+        "🤖 الخصم هو بوت Talkin2."
+    )
+    english_setup = bot._localize_room_text("EnglishHall", cricket_setup)
+    assert not any("\u0600" <= char <= "\u06ff" for char in english_setup)
+
+    cricket_samples = [
+        "⛔ يوجد لاعب مسجل بالفعل؛ أرسل Join بحسابه أو انتظر الغرفة الأخرى.",
+        "لاعب في الغرفة.\n🔗 بعد اكتمال الفريق الأول، ترسل الغرفة الثانية Join؛ وعند تعدد القوائم يُقرن بأقدم فريق مكتمل. أو أكمل العدد هنا للعب ضد BotName.",
+        "🔄 استؤنفت مباراة الكركيت بعد إعادة تشغيل البوت.\nPrompt",
+        "🔄 استؤنفت مباراة الكركيت. ترسل غرفة الإعداد 1 للهجوم أو 2 للدفاع؛ ويُعيّن دور الغرفة الثانية تلقائيًا.",
+        "🔄 استؤنف إعداد مباراة الكريكيت. اختر عدد اللاعبين من 1 إلى 4.",
+    ]
+    for message in cricket_samples:
+        localized = bot._localize_room_text("EnglishHall", message)
+        assert not any("\u0600" <= char <= "\u06ff" for char in localized), localized
+    assert bot._localize_room_text("ArabicHall", cricket_samples[1]) == cricket_samples[1]

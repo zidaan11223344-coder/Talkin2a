@@ -54,6 +54,31 @@ def test_next_timed_game_is_due_three_minutes_after_round_resolution_finishes():
     assert bot._rare_diamond_next_due == 1_425.0
 
 
+def test_direct_timed_game_start_cannot_bypass_the_three_minute_pause():
+    bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
+    bot._rare_diamond_lock = threading.RLock()
+    bot._rare_diamond_event = None
+    bot._rare_diamond_next_due = 1_180.0
+    bot._rare_diamond_round_seq = 0
+    bot.connected_rooms = {"Hall"}
+    bot._doctor_ban_lock = threading.RLock()
+    bot._doctor_ban_once = {}
+    bot._effective_room_language = lambda _room: "ar"
+    bot.log = lambda *_args: None
+    sent = []
+    bot.send_room_text = lambda room, text: sent.append((room, text))
+
+    with patch.object(bot_module.time, "time", return_value=1_000.0):
+        assert bot._start_rare_diamond_event("rare_diamond") is False
+    assert bot._rare_diamond_event is None
+    assert not sent
+
+    with patch.object(bot_module.time, "time", return_value=1_180.0):
+        assert bot._start_rare_diamond_event("rare_diamond") is True
+    assert bot._rare_diamond_event["ends_at"] == 1_360.0
+    assert len(sent) == 1
+
+
 def test_timed_round_timeout_closes_once_and_waits_three_minutes_before_next_game():
     bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
     bot._rare_diamond_lock = threading.RLock()
@@ -287,33 +312,9 @@ def test_all_nine_timed_games_complete_and_emit_one_result_when_rosters_fill():
         result_messages = [text for room, text in room_messages if room == "Hall" and ("فاز" in text or "أنقذ" in text)]
         assert len(result_messages) == 1, (game_key, room_messages)
         assert "@Player0" in result_messages[0], game_key
-        assert cards == [("Hall", game_key, "Player0")]
+        assert cards == []
         assert any(update[0] == "Player0" and update[1] == config["prize"] for update in point_updates), game_key
         assert sum(1 for _name, delta, *_rest in point_updates if delta == -10_000) == config["players"] - 1, game_key
         if game_key == "imperial_sickness":
             assert len(bot._doctor_ban_once) == config["players"] - 1
             assert bot_module._norm_user("Player0") not in bot._doctor_ban_once
-
-
-def test_result_card_for_every_timed_game_uses_public_image_delivery():
-    bot = bot_module.TalkinBot.__new__(bot_module.TalkinBot)
-    bot.user_photos = {}
-    bot._lookup_profile_photo = lambda _username: ""
-    bot._effective_room_language = lambda _room: "ar"
-    bot.log = lambda *_args: None
-    sent = []
-    bot.send_room_media = lambda room, url, kind: sent.append((room, url, kind)) or True
-    bot._verify_public_media_url = lambda _url, _kind: True
-
-    class Card:
-        name = "winner-card.jpg"
-
-    with patch.object(bot_module, "_public_base_url", return_value="https://bot.example"), \
-         patch.object(bot_module, "render_rare_diamond_winner_card", return_value=Card()):
-        for game_key in bot_module.TIMED_TREASURE_GAMES:
-            assert bot._send_treasure_game_result_card("Hall", game_key, "Winner") is True
-
-    assert sent == [
-        ("Hall", "https://bot.example/games/winner-card.jpg", "image")
-        for _ in bot_module.TIMED_TREASURE_GAMES
-    ]
