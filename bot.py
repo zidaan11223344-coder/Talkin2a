@@ -2238,15 +2238,15 @@ def _money_game_winners_message(game_name, english=False):
     return "\n".join(lines)
 
 # GitHub-backed persistent state. Runtime code stays in Talkin2a while durable
-# data is backed up to the Talkin-ID repository by default; uploads happen
+# data is backed up to the Talkin-ID-Data repository by default; uploads happen
 # asynchronously so message handling is not blocked by
 # GitHub network requests. Set GITHUB_TOKEN in the hosting environment.
 # Never hard-code the token in bot.py. For public repositories, remember that
 # committed member/verification/points data becomes publicly readable.
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 # Set GITHUB_REPO only when a different backup repository is explicitly needed.
-GITHUB_REPO = (os.getenv("GITHUB_REPO", "zidaan11223344-coder/Talkin-ID").strip()
-               or "zidaan11223344-coder/Talkin-ID")  # Talkin ID data repository
+GITHUB_REPO = (os.getenv("GITHUB_REPO", "zidaan11223344-coder/Talkin-ID-Data").strip()
+               or "zidaan11223344-coder/Talkin-ID-Data")  # Talkin ID data repository
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main").strip() or "main"
 GITHUB_DATA_DIR = os.getenv("GITHUB_DATA_DIR", "bot_data").strip().strip("/")
 GITHUB_SYNC_ENABLED = bool(GITHUB_TOKEN and GITHUB_REPO and os.getenv("GITHUB_SYNC", "1").strip().lower() not in {"0", "false", "no", "off"})
@@ -2474,7 +2474,7 @@ def _github_restore_or_seed_state():
                 remote = _github_get_file(local)
                 if name == "replies.json":
                     # Replies may live at bot_data/replies.json, replies.json,
-                    # or another legacy folder in Talkin-ID. Prefer the exact
+                    # or another legacy folder in Talkin-ID-Data. Prefer the exact
                     # configured/canonical path and fall back to any match.
                     for candidate_path in _github_find_json_paths("replies.json"):
                         candidate = _github_get_arbitrary_file(candidate_path)
@@ -2791,7 +2791,7 @@ def _github_sync_worker():
         for bot, sender in requests_to_notify:
             try:
                 notice = (
-                    "✅ تم النسخ الاحتياطي بنجاح إلى GitHub (Talkin-ID)."
+                    "✅ تم النسخ الاحتياطي بنجاح إلى GitHub (Talkin-ID-Data)."
                     if backup_ok else
                     "❌ اكتمل النسخ الاحتياطي جزئياً؛ تعذر رفع ملف أو أكثر. راجع سجل Railway."
                 )
@@ -20960,10 +20960,10 @@ class TalkinBot:
             if queued:
                 self.send_private_text(
                     sender,
-                    f"⏳ بدأ النسخ الاحتياطي في الخلفية. سيتم تأكيد النجاح بعد رفع {queued} ملفاً إلى GitHub (Talkin-ID)."
+                    f"⏳ بدأ النسخ الاحتياطي في الخلفية. سيتم تأكيد النجاح بعد رفع {queued} ملفاً إلى GitHub (Talkin-ID-Data)."
                 )
             else:
-                self.send_private_text(sender, "⚠️ تعذر بدء النسخ الاحتياطي؛ تأكد من تفعيل GITHUB_SYNC وGITHUB_TOKEN بصلاحية الكتابة إلى Talkin-ID.")
+                self.send_private_text(sender, "⚠️ تعذر بدء النسخ الاحتياطي؛ تأكد من تفعيل GITHUB_SYNC وGITHUB_TOKEN بصلاحية الكتابة إلى Talkin-ID-Data.")
             return True
         # Master-only self restart. The reply stays in the same channel where
         # the master issued the command, then the current Python process is replaced.

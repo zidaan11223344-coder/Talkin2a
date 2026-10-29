@@ -44,17 +44,17 @@ TALKIN_ID_DATA_DB_PASSWORD=كلمة_المرور
 
 ## حفظ الملفات والمتغيرات
 
-ملفات الحالة JSON تُرفع إلى مستودع بيانات Talkin-ID:
+ملفات الحالة JSON تُرفع إلى مستودع بيانات Talkin-ID-Data:
 
 ```text
-GITHUB_REPO=zidaan11223344-coder/Talkin-ID
+GITHUB_REPO=zidaan11223344-coder/Talkin-ID-Data
 GITHUB_DATA_DIR=bot_data
 GITHUB_SYNC=1
-GITHUB_TOKEN=<توكن_لديه_صلاحية_الكتابة_إلى_Talkin-ID>
+GITHUB_TOKEN=<توكن_لديه_صلاحية_الكتابة_إلى_Talkin-ID-Data>
 ```
 
 لا تضع `GITHUB_TOKEN` داخل الملفات المرفوعة إلى المستودع. إذا كانت قيمة
-`GITHUB_REPO` موجودة في Altare، اجعلها `zidaan11223344-coder/Talkin-ID` حتى لا
+`GITHUB_REPO` موجودة في Altare، اجعلها `zidaan11223344-coder/Talkin-ID-Data` حتى لا
 يعود النسخ الاحتياطي إلى مستودع آخر.
 
 أنشئ Persistent Volume في Altare واربطه داخل الحاوية بالمسار `/data`، ثم ضع:
