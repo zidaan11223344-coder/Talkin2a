@@ -639,6 +639,21 @@ AUTO_JOIN_ALL_ROOMS = (
     or os.getenv("AUTO_JOIN_ROOMS")
     or "on"
 ).strip().casefold() in {"1", "true", "yes", "on", "enable", "enabled"}
+# Set RESTORE_SAVED_ROOMS_ON_STARTUP=0 to stop automatic entry into every room
+# saved in tracked_rooms.json after start/reconnect. GROUP_TO_JOIN remains the
+# only automatic room; manual room commands are unaffected.
+RESTORE_SAVED_ROOMS_ON_STARTUP = (
+    os.getenv("RESTORE_SAVED_ROOMS_ON_STARTUP")
+    or os.getenv("JOIN_SAVED_ROOMS_ON_STARTUP")
+    or os.getenv("STARTUP_JOIN_SAVED_ROOMS")
+    or ("1" if AUTO_JOIN_ALL_ROOMS else "0")
+).strip().casefold() in {"1", "true", "yes", "on", "enable", "enabled"}
+# Set STARTUP_JOIN_ENABLED=0 to make startup/reconnect completely roomless.
+# This has priority over GROUP_TO_JOIN and the saved-room restore setting.
+STARTUP_JOIN_ENABLED = (
+    os.getenv("STARTUP_JOIN_ENABLED", "1").strip().casefold()
+    not in {"0", "false", "no", "off", "disable", "disabled"}
+)
 # Global verification gate. OFF keeps all existing verified/VIP records intact,
 # but bypasses the requirement to be verified for commands that use the
 # verification gate. ON restores the normal verification requirement.
@@ -1887,17 +1902,67 @@ class DatabaseBridge:
             return []
 
 # ----------------------- Giant-style local data -----------------------
-# Riven may provide separate PostgreSQL fields instead of DATABASE_URL.
-# Accept both Riven-specific names and standard PG names for portability.
-RIVEN_DATABASE_NAME = (os.getenv("RIVEN_DATABASE_NAME") or os.getenv("RIVEN_DB_NAME") or
-                       os.getenv("DB_NAME") or os.getenv("PGDATABASE") or "talkin_bot_db").strip() or "talkin_bot_db"
-RIVEN_DB_HOST = (os.getenv("RIVEN_DB_HOST") or os.getenv("DB_HOST") or os.getenv("PGHOST") or "").strip()
-RIVEN_DB_PORT = (os.getenv("RIVEN_DB_PORT") or os.getenv("DB_PORT") or os.getenv("PGPORT") or "5432").strip()
-RIVEN_DB_USER = (os.getenv("RIVEN_DB_USER") or os.getenv("DB_USER") or os.getenv("PGUSER") or "").strip()
-RIVEN_DB_PASSWORD = os.getenv("RIVEN_DB_PASSWORD") or os.getenv("DB_PASSWORD") or os.getenv("PGPASSWORD") or ""
-RIVEN_DATABASE_URL = (os.getenv("RIVEN_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
-RIVEN_DATABASE_KIND = (os.getenv("RIVEN_DATABASE_KIND") or os.getenv("DB_TYPE") or
-                       ("mysql" if RIVEN_DB_PORT == "3306" else "postgres")).strip().lower()
+# Accept the names used by Altare/database services as well as the older
+# Riven and generic names. Secrets are read only from the process environment;
+# they are never written back to the repository or to the runtime log.
+def _first_env(*names, default=""):
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return default
+
+RIVEN_DATABASE_URL = _first_env(
+    "TALKIN_ID_DATA_DATABASE_URL", "TALKIN_ID_DATA_URL",
+    "TALKIN_DATABASE_URL", "RIVEN_DATABASE_URL", "DATABASE_URL",
+)
+RIVEN_DATABASE_NAME = _first_env(
+    "TALKIN_ID_DATA_DATABASE_NAME", "TALKIN_ID_DATA_DB_NAME",
+    "RIVEN_DATABASE_NAME", "RIVEN_DB_NAME", "DB_NAME", "PGDATABASE",
+    "POSTGRES_DB", "MYSQL_DATABASE", default="talkin_bot_db",
+)
+RIVEN_DB_HOST = _first_env(
+    "TALKIN_ID_DATA_DB_HOST", "TALKIN_ID_DATA_HOST",
+    "RIVEN_DB_HOST", "DB_HOST", "PGHOST", "POSTGRES_HOST", "MYSQL_HOST",
+)
+RIVEN_DB_PORT = _first_env(
+    "TALKIN_ID_DATA_DB_PORT", "TALKIN_ID_DATA_PORT",
+    "RIVEN_DB_PORT", "DB_PORT", "PGPORT", "POSTGRES_PORT", "MYSQL_PORT",
+    default="5432",
+)
+RIVEN_DB_USER = _first_env(
+    "TALKIN_ID_DATA_DB_USER", "TALKIN_ID_DATA_USER",
+    "RIVEN_DB_USER", "DB_USER", "PGUSER", "POSTGRES_USER", "MYSQL_USER",
+)
+RIVEN_DB_PASSWORD = _first_env(
+    "TALKIN_ID_DATA_DB_PASSWORD", "TALKIN_ID_DATA_PASSWORD",
+    "RIVEN_DB_PASSWORD", "DB_PASSWORD", "PGPASSWORD", "POSTGRES_PASSWORD", "MYSQL_PASSWORD",
+)
+RIVEN_DATABASE_KIND = _first_env(
+    "TALKIN_ID_DATA_DATABASE_KIND", "TALKIN_ID_DATA_DB_TYPE",
+    "RIVEN_DATABASE_KIND", "DB_TYPE", "DATABASE_KIND",
+    default=("mysql" if RIVEN_DB_PORT == "3306" or os.getenv("MYSQL_HOST") else "postgres"),
+).lower()
+
+# Some providers expose only a URL. Extract its fields so MySQL/MariaDB URLs
+# work too; the previous code tried to connect with empty host/user fields.
+if RIVEN_DATABASE_URL:
+    try:
+        _db_parts = urlparse(RIVEN_DATABASE_URL)
+        _scheme = (_db_parts.scheme or "").lower()
+        if _scheme in {"mysql", "mariadb"}:
+            RIVEN_DATABASE_KIND = "mysql"
+        elif _scheme in {"postgres", "postgresql"}:
+            RIVEN_DATABASE_KIND = "postgres"
+        RIVEN_DB_HOST = RIVEN_DB_HOST or (_db_parts.hostname or "")
+        RIVEN_DB_PORT = RIVEN_DB_PORT if RIVEN_DB_PORT != "5432" or _db_parts.port is None else str(_db_parts.port)
+        RIVEN_DB_USER = RIVEN_DB_USER or unquote(_db_parts.username or "")
+        RIVEN_DB_PASSWORD = RIVEN_DB_PASSWORD or unquote(_db_parts.password or "")
+        if _db_parts.path and _db_parts.path != "/":
+            RIVEN_DATABASE_NAME = RIVEN_DATABASE_NAME if RIVEN_DATABASE_NAME != "talkin_bot_db" else unquote(_db_parts.path.lstrip("/"))
+    except Exception:
+        pass
+
 if not RIVEN_DATABASE_URL and RIVEN_DB_HOST and RIVEN_DB_USER and RIVEN_DB_PASSWORD:
     from urllib.parse import quote as _url_quote
     _db_scheme = "mysql" if RIVEN_DATABASE_KIND in {"mysql", "mariadb"} else "postgresql"
@@ -2172,16 +2237,15 @@ def _money_game_winners_message(game_name, english=False):
         )
     return "\n".join(lines)
 
-# GitHub-backed persistent state. Runtime stays in Talkin1; durable state is
-# backed up to Talkin4 asynchronously so message handling is not blocked by
+# GitHub-backed persistent state. Runtime and durable state use Talkin2a by
+# default; uploads happen asynchronously so message handling is not blocked by
 # GitHub network requests. Set GITHUB_TOKEN in the hosting environment.
 # Never hard-code the token in bot.py. For public repositories, remember that
 # committed member/verification/points data becomes publicly readable.
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
-# State backups are intentionally restricted to Talkin4. Do not allow a
-# deployment variable to redirect the bot into the main Talkin1 source repo.
-GITHUB_REPO = (os.getenv("GITHUB_REPO", "zidaan11223344-coder/Talkin4").strip()
-               or "zidaan11223344-coder/Talkin4")  # durable data repository
+# Set GITHUB_REPO only when a different backup repository is explicitly needed.
+GITHUB_REPO = (os.getenv("GITHUB_REPO", "zidaan11223344-coder/Talkin2a").strip()
+               or "zidaan11223344-coder/Talkin2a")  # same source repository
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main").strip() or "main"
 GITHUB_DATA_DIR = os.getenv("GITHUB_DATA_DIR", "bot_data").strip().strip("/")
 GITHUB_SYNC_ENABLED = bool(GITHUB_TOKEN and GITHUB_REPO and os.getenv("GITHUB_SYNC", "1").strip().lower() not in {"0", "false", "no", "off"})
@@ -2409,7 +2473,7 @@ def _github_restore_or_seed_state():
                 remote = _github_get_file(local)
                 if name == "replies.json":
                     # Replies may live at bot_data/replies.json, replies.json,
-                    # or another legacy folder in Talkin4. Prefer the exact
+                    # or another legacy folder in Talkin2a. Prefer the exact
                     # configured/canonical path and fall back to any match.
                     for candidate_path in _github_find_json_paths("replies.json"):
                         candidate = _github_get_arbitrary_file(candidate_path)
@@ -2563,6 +2627,11 @@ if _STATE_DB_ENABLED:
     except Exception as exc:
         _STATE_DB, _STATE_DB_ENABLED = None, False
         print(f"[STATE-DB] disabled after connection failure: {exc}", flush=True)
+else:
+    print(
+        "[STATE-DB] disabled: no usable Talkin ID Data/DATABASE_URL credentials found",
+        flush=True,
+    )
 
 # On a populated PostgreSQL store, it is authoritative and GitHub is used
 # only for scheduled/manual backups. On first setup, GitHub can seed the DB.
@@ -2655,7 +2724,7 @@ def _request_github_full_backup(bot, sender):
     """Queue a full backup and remember who should receive its result."""
     queued = _queue_github_full_backup()
     if queued:
-        # Environment variables go to Telegram only, never to Talkin4.
+        # Environment variables go to Telegram only, never to GitHub.
         threading.Thread(
             target=bot._send_variables_to_telegram,
             args=(str(sender or "").strip(),),
@@ -2721,7 +2790,7 @@ def _github_sync_worker():
         for bot, sender in requests_to_notify:
             try:
                 notice = (
-                    "✅ تم النسخ الاحتياطي بنجاح إلى GitHub (Talkin4)."
+                    "✅ تم النسخ الاحتياطي بنجاح إلى GitHub (Talkin2a)."
                     if backup_ok else
                     "❌ اكتمل النسخ الاحتياطي جزئياً؛ تعذر رفع ملف أو أكثر. راجع سجل Railway."
                 )
@@ -5154,7 +5223,7 @@ def _message_template(section,key,default,**kwargs):
     data=_load_local_json(MESSAGES_FILE,{})
     value=((data.get(section) or {}).get(key)) if isinstance(data,dict) else None
     # The requested publish/music formats are authoritative. Ignore an older
-    # restored template from Talkin4 if it still uses the previous layout.
+    # restored template from Talkin2a if it still uses the previous layout.
     if section == "publish" and key == "broadcast" and isinstance(value, str) and "🖼️ {description}" in value:
         value = None
     if section == "music" and key == "broadcast" and isinstance(value, str) and "{code}" in value:
@@ -7515,8 +7584,7 @@ class TalkinBot:
 
     def log(self, *args):
         """Optional diagnostics. Quiet mode avoids stdout and persistent log growth."""
-        if QUIET_MODE and not DEBUG:
-            return
+        always_visible = False
         try:
             # A room-message body is user content, not a diagnostic.  The
             # normal room handler does not pass it here; this guard also keeps
@@ -7527,6 +7595,18 @@ class TalkinBot:
             ):
                 return
             line = " ".join(str(x) for x in args)
+            # Connection/auth/database state must remain visible in the host
+            # log even when QUIET_MODE=1. This makes failed startup obvious
+            # without printing secrets or high-volume room messages.
+            always_visible = any(
+                marker in line
+                for marker in (
+                    "[AUTH]", "[WS] CONNECTED", "[WS] trying", "[WS] host/path failed",
+                    "[STATE-DB]", "[DB]", "[BOT]", "[ROOM_POLICY]", "[CONNECTION_NOTICE]",
+                )
+            )
+            if QUIET_MODE and not DEBUG and not always_visible:
+                return
             self._cpu_log_suppressed = int(getattr(self, "_cpu_log_suppressed", 0) or 0)
             if getattr(self, "_cpu_cooling", False):
                 now = time.monotonic()
@@ -7556,10 +7636,10 @@ class TalkinBot:
             # Riven displays stdout as the runtime log. When QUIET_MODE=0,
             # diagnostics must be visible even if DEBUG remains 0; DEBUG is
             # reserved for the extra raw/protocol traces.
-            if DEBUG or not QUIET_MODE:
+            if DEBUG or not QUIET_MODE or always_visible:
                 print(*args, flush=True)
         except Exception:
-            if DEBUG or not QUIET_MODE:
+            if DEBUG or not QUIET_MODE or always_visible:
                 try:
                     print(*args, flush=True)
                 except Exception:
@@ -20879,10 +20959,10 @@ class TalkinBot:
             if queued:
                 self.send_private_text(
                     sender,
-                    f"⏳ بدأ النسخ الاحتياطي في الخلفية. سيتم تأكيد النجاح بعد رفع {queued} ملفاً إلى GitHub (Talkin4)."
+                    f"⏳ بدأ النسخ الاحتياطي في الخلفية. سيتم تأكيد النجاح بعد رفع {queued} ملفاً إلى GitHub (Talkin2a)."
                 )
             else:
-                self.send_private_text(sender, "⚠️ تعذر بدء النسخ الاحتياطي؛ تأكد من تفعيل GITHUB_SYNC وإعداد مستودع Talkin4.")
+                self.send_private_text(sender, "⚠️ تعذر بدء النسخ الاحتياطي؛ تأكد من تفعيل GITHUB_SYNC وGITHUB_TOKEN بصلاحية الكتابة إلى Talkin2a.")
             return True
         # Master-only self restart. The reply stays in the same channel where
         # the master issued the command, then the current Python process is replaced.
@@ -24828,17 +24908,17 @@ class TalkinBot:
         # OFF = only the configured GROUP_TO_JOIN/FIRST_ROOM.
         # ON  = all rooms saved in tracked_rooms.json plus GROUP_TO_JOIN.
         # Manual `.دخول غرفي` is independent and always joins the saved list.
-        if MASTER_SERVICE_ENABLED:
+        if MASTER_SERVICE_ENABLED or not STARTUP_JOIN_ENABLED:
             rooms_to_restore = set()
         else:
             # tracked_rooms.json is the authoritative startup source. The
             # in-memory known_rooms set may be a truncated/stale view after a
             # reconnect and was the reason only a subset was restored.
-            rooms_to_restore = {
+            rooms_to_restore = ({
                 str(r).strip() for r in _persistent_rooms()
                 if str(r).strip() and _norm_room(r) not in getattr(self, "blocked_rooms", set())
-            }
-            if self.room:
+            } if RESTORE_SAVED_ROOMS_ON_STARTUP else set())
+            if self.room and STARTUP_JOIN_ENABLED:
                 rooms_to_restore.add(str(self.room).strip())
         if rooms_to_restore:
             self._room_restore_candidates = {
@@ -24982,10 +25062,12 @@ class TalkinBot:
             missing.append("BOT_ID (or BOT_USERNAME)")
         if not BOT_PWD:
             missing.append("BOT_PWD (or BOT_PASSWORD)")
-        if not self.room and not MASTER_SERVICE_ENABLED:
+        if not self.room and not MASTER_SERVICE_ENABLED and STARTUP_JOIN_ENABLED:
             missing.append("GROUP_TO_JOIN (or FIRST_ROOM)")
-        if DEBUG and not QUIET_MODE:
-            print(f"[ROOM_POLICY] startup={'ALL_SAVED_ROOMS' if AUTO_JOIN_ALL_ROOMS else 'FIRST_ROOM_ONLY'} verification={'ON' if VERIFICATION_ENABLED else 'OFF'}", flush=True)
+        self.log(
+            f"[ROOM_POLICY] startup={'ALL_SAVED_ROOMS' if RESTORE_SAVED_ROOMS_ON_STARTUP else 'FIRST_ROOM_ONLY'} "
+            f"verification={'ON' if VERIFICATION_ENABLED else 'OFF'}"
+        )
         if missing:
             raise SystemExit(
                 "Missing required deployment variables: " + ", ".join(missing) + ". "

@@ -1,0 +1,58 @@
+# Talkin2a - Altare Environment Variables
+# انسخ كل سطر إلى Environment Variables في Altare.
+# استبدل القيم بين <...> فقط.
+# لا تضع GITHUB_TOKEN أو كلمات مرور قاعدة البيانات داخل Git.
+
+# حساب البوت
+BOT_ID=<اسم_البوت>
+BOT_PWD=<كلمة_مرور_البوت>
+BOT_MASTER=<اسم_الماستر>
+GROUP_TO_JOIN=<اسم_الغرفة_الأولى>
+
+# التخزين الدائم داخل Volume مربوط على /data
+BOT_DATA_DIR=/data/talkin2
+PERSISTENT_DATA_DIR=/data/talkin2
+TELEGRAM_LOG_FILE=/data/talkin2/bot_runtime.log
+TELEGRAM_CHAT_FILE=/data/talkin2/telegram_chat_id.json
+
+# منع دخول كل الغرف تلقائيًا عند التشغيل أو إعادة الاتصال
+STARTUP_JOIN_ENABLED=0
+RESTORE_SAVED_ROOMS_ON_STARTUP=0
+
+# إظهار حالة المصادقة وWebSocket وقاعدة البيانات في Runtime Logs
+QUIET_MODE=0
+DEBUG=0
+
+# قاعدة Talkin ID Data - اختر طريقة واحدة فقط
+# الطريقة الأولى: رابط اتصال كامل
+TALKIN_ID_DATA_DATABASE_URL=<رابط_قاعدة_البيانات>
+
+# الطريقة الثانية: حقول منفصلة، واحذف/اترك الرابط الكامل فارغًا
+TALKIN_ID_DATA_DATABASE_KIND=<mysql_أو_postgres>
+TALKIN_ID_DATA_DB_HOST=<عنوان_خادم_قاعدة_البيانات>
+TALKIN_ID_DATA_DB_PORT=<3306_لـ_MySQL_أو_5432_لـ_PostgreSQL>
+TALKIN_ID_DATA_DB_NAME=<اسم_قاعدة_البيانات>
+TALKIN_ID_DATA_DB_USER=<مستخدم_قاعدة_البيانات>
+TALKIN_ID_DATA_DB_PASSWORD=<كلمة_مرور_قاعدة_البيانات>
+
+# حفظ ملفات الحالة JSON في نفس مستودع Talkin2a
+GITHUB_SYNC=1
+GITHUB_REPO=zidaan11223344-coder/Talkin2a
+GITHUB_BRANCH=main
+GITHUB_DATA_DIR=bot_data
+GITHUB_TOKEN=<GitHub_Token_بصلاحية_Contents_Read_and_Write_إلى_Talkin2a>
+GITHUB_BACKUP_WAIT_SECONDS=20
+GITHUB_JSON_MIRROR=0
+DATABASE_BACKUP_INTERVAL_SECONDS=21600
+
+# اختياري: Telegram لإرسال السجل والمتغيرات
+TELEGRAM_BOT_TOKEN=<توكن_بوت_Telegram>
+TELEGRAM_CHAT_ID=<اتركه_فارغًا_للحفظ_التلقائي_بعد_أول_رسالة>
+TELEGRAM_POLL_ENABLED=1
+TELEGRAM_LONG_TEXT_ENABLED=1
+
+# اختياري إذا كانت قاعدة Talkin ID Data هي Supabase وتحتاج قراءة بيانات الغرف
+SUPABASE_URL=<رابط_Supabase_إن_وجد>
+SUPABASE_KEY=<مفتاح_Supabase_إن_وجد>
+SUPABASE_EMAIL=<البريد_إن_وجد>
+SUPABASE_PASSWORD=<كلمة_المرور_إن_وجد>
