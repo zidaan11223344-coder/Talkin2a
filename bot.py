@@ -13397,6 +13397,10 @@ class TalkinBot:
                                f"🎵 العنوان: {title}\n🎤 الطلب: @{requester}\n"
                                f"📡 المصدر: {artist or 'Music'}")
 
+                # The playable URL is carried in the room media packet below;
+                # never expose it as a plain-text link in the room caption.
+                caption = re.sub(r"https?://\S+", "", str(caption)).strip()
+
                 if live_stream:
                     if live_started:
                         self.send_room_text(room, "🎶 تم تشغيل الطلب في البث\n🎵 تم تشغيل الأغنية في البث فعلياً\n📡 بث مباشر")
@@ -13410,6 +13414,7 @@ class TalkinBot:
                     # Audio has already been accepted; send captions afterward
                     # so source failure never produces a false success card.
                     for target_room in published_rooms:
+                        self.log("[MUSIC] direct audio attachment sent:", target_room, title)
                         try:
                             self.send_room_text(target_room, caption)
                         except Exception as exc:
