@@ -97,11 +97,13 @@ MUSIC_MAX_BYTES = int(MUSIC_MAX_MB * 1024 * 1024)
 # HTTP downloads and notes it can help with webserver throttling.
 MUSIC_HTTP_CHUNK_SIZE = int(os.getenv("MUSIC_HTTP_CHUNK_SIZE", str(8 * 1024 * 1024)))
 MUSIC_CONCURRENT_FRAGMENTS = int(os.getenv("MUSIC_CONCURRENT_FRAGMENTS", "16"))
-MUSIC_BUFFER_SIZE = int(os.getenv("MUSIC_BUFFER_SIZE", str(4 * 1024 * 1024)))
-MUSIC_THROTTLED_RATE = int(os.getenv("MUSIC_THROTTLED_RATE", str(128 * 1024)))
+MUSIC_BUFFER_SIZE = int(os.getenv("MUSIC_BUFFER_SIZE", str(8 * 1024 * 1024)))
+# 0 means do not apply an artificial download throttle.
+MUSIC_THROTTLED_RATE = int(os.getenv("MUSIC_THROTTLED_RATE", "0"))
 MUSIC_COOLDOWN = float(os.getenv("MUSIC_COOLDOWN", "15"))
-MUSIC_DIRECT_CACHE_TTL = float(os.getenv("MUSIC_DIRECT_CACHE_TTL", "300"))
-MUSIC_FAST_LOOKUP_TIMEOUT = 6.0
+MUSIC_DIRECT_CACHE_TTL = float(os.getenv("MUSIC_DIRECT_CACHE_TTL", "3600"))
+MUSIC_FAST_LOOKUP_TIMEOUT = float(os.getenv("MUSIC_FAST_LOOKUP_TIMEOUT", "6"))
+MUSIC_AUDIO_START_FRAMES = max(3, int(os.getenv("MUSIC_AUDIO_START_FRAMES", "3")))
 # Audius is an additional lightweight source used primarily by live broadcast.
 # It can search the catalog and expose a streamable MP3 URL without first
 # downloading the whole song to Railway. The API supports read-only access;
@@ -680,7 +682,7 @@ STREAM_CHECK_ACTION = os.getenv("STREAM_CHECK_ACTION", "check_streaming").strip(
 # enabled by default because some Talkin builds can show the bot as a listener
 # even though the LiveKit publisher is already connected.
 STREAM_REASSERT_SPEAKER = os.getenv("STREAM_REASSERT_SPEAKER", "1").strip() == "1"
-STREAM_REASSERT_DELAY = max(0.0, float(os.getenv("STREAM_REASSERT_DELAY", "0.15")))
+STREAM_REASSERT_DELAY = max(0.0, float(os.getenv("STREAM_REASSERT_DELAY", "0.05")))
 STREAM_INVITE_TOKEN = os.getenv("STREAM_INVITE_TOKEN", "Token").strip() or "Token"
 STREAM_ACCEPT_STATE = os.getenv("STREAM_ACCEPT_STATE", "accept").strip() or "accept"
 STREAM_AUTO_ACCEPT = os.getenv("STREAM_AUTO_ACCEPT", "1").strip() == "1"
@@ -10505,7 +10507,7 @@ class TalkinBot:
         setattr(self, f"_livekit_audio_feeding_{room}", True)
         first_frame = threading.Event()
         setattr(self, f"_livekit_first_frame_event_{room}", first_frame)
-        required_start_frames = 6
+        required_start_frames = MUSIC_AUDIO_START_FRAMES
         state = {"ok": False, "frames": 0, "error": ""}
 
         def _run():
@@ -10513,17 +10515,16 @@ class TalkinBot:
             try:
                 source_path = Path(media_url).expanduser()
                 is_local_file = source_path.is_file()
-                # Audio transcoding is the other major CPU consumer on small
-                # Raven containers. Keep ffmpeg single-threaded and lower its
-                # scheduler priority so WebSocket/command handling stays
-                # responsive while a live song is playing.
+                # Keep enough CPU priority for the first audio frames. The old
+                # default nice=10 delayed startup on shared containers.
                 ffmpeg_bin = "ffmpeg"
                 ffmpeg_prefix = []
-                if os.name == "posix" and shutil.which("nice") and os.getenv("FFMPEG_NICE", "10").strip() not in {"", "0"}:
-                    ffmpeg_prefix = ["nice", "-n", os.getenv("FFMPEG_NICE", "10").strip()]
+                ffmpeg_nice = os.getenv("FFMPEG_NICE", "0").strip()
+                if os.name == "posix" and shutil.which("nice") and ffmpeg_nice not in {"", "0"}:
+                    ffmpeg_prefix = ["nice", "-n", ffmpeg_nice]
                 ffmpeg_cmd = ffmpeg_prefix + [
                     ffmpeg_bin, "-hide_banner", "-loglevel", "error", "-nostdin",
-                    "-threads", os.getenv("FFMPEG_THREADS", "1"),
+                    "-threads", os.getenv("FFMPEG_THREADS", "2"),
                     "-filter_threads", "1", "-filter_complex_threads", "1",
                     "-probesize", "32k", "-analyzeduration", "100000",
                     "-fflags", "nobuffer", "-flags", "low_delay", "-re",
