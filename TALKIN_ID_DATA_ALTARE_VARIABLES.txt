@@ -35,12 +35,12 @@ TALKIN_ID_DATA_DB_NAME=<اسم_قاعدة_البيانات>
 TALKIN_ID_DATA_DB_USER=<مستخدم_قاعدة_البيانات>
 TALKIN_ID_DATA_DB_PASSWORD=<كلمة_مرور_قاعدة_البيانات>
 
-# حفظ ملفات الحالة JSON في نفس مستودع Talkin2a
+# حفظ ملفات الحالة JSON في مستودع بيانات Talkin-ID
 GITHUB_SYNC=1
-GITHUB_REPO=zidaan11223344-coder/Talkin2a
+GITHUB_REPO=zidaan11223344-coder/Talkin-ID
 GITHUB_BRANCH=main
 GITHUB_DATA_DIR=bot_data
-GITHUB_TOKEN=<GitHub_Token_بصلاحية_Contents_Read_and_Write_إلى_Talkin2a>
+GITHUB_TOKEN=<GitHub_Token_بصلاحية_Contents_Read_and_Write_إلى_Talkin-ID>
 GITHUB_BACKUP_WAIT_SECONDS=20
 GITHUB_JSON_MIRROR=0
 DATABASE_BACKUP_INTERVAL_SECONDS=21600
